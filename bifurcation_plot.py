@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.optimize import fsolve
 from scipy.integrate import quad
-import astropy as as_u
+import astropy.units as as_u
 
 # Define your class as-is (with slight modifications to remove inline imports)
 class Critical_Insolation():

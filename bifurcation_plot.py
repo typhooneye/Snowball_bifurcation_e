@@ -6,7 +6,11 @@ from scipy.integrate import quad
 
 # Define your class as-is (with slight modifications to remove inline imports)
 class Critical_Insolation():
-    def __init__(self, ao=0.4, ai=0.6, phi_c_deg=20, Fs=1360/np.pi, A=-218.4492, B=1.4364, T_f=280, k_i=2, adv_flux=0.05):
+    def __init__(self,ao=0.4, ai=0.6, phi_c_deg=20, Fs=1360/np.pi, A=-218.4492, B=1.4364,T_f=280,k_i=2,adv_flux=0.05):
+        import numpy as np
+        from scipy.optimize import fsolve
+        from scipy.integrate import quad
+        import matplotlib.pyplot as plt
         self.ao = ao
         self.ai = ai
         self.phi_c = phi_c_deg/180*np.pi
@@ -14,29 +18,34 @@ class Critical_Insolation():
         self.A = A
         self.B = B
         self.T_f = T_f
-
         # Constants and Parameters
+
         SHR_CONST_RHOICE  = 0.917e3 # density of ice             ~ kg/m^3
-        SHR_CONST_LATICE = 3.337e5  # latent heat of fusion     ~ J/kg
+        SHR_CONST_LATICE = 3.337e5 # latent heat of fusion     ~ J/kg
 
         # Physical Constants
         self.sigma = 5.670374419e-8  # Stefan-Boltzmann constant, W/(m^2·K^4)
+        # A = -217.89  # OLR constant term, W/m^2
+        # B = 1.43   # OLR linear term, W/(m^2·K)
+        # self.A_mean = -276.9  # OLR constant term, W/m^2
+        # self.B_mean = 1.77   # OLR linear term, W/(m^2·K)
+        self.B = B
+        self.A = A
         self.alpha_i = ai  # Ice albedo
         self.S0 = Fs       # Solar constant, W/m^2
+        # S0=340
         self.adv_flux = adv_flux
+
         self.k_i = k_i     # Sea ice thermal conductivity, W/(m·K)
         self.L_i = SHR_CONST_LATICE*SHR_CONST_RHOICE # Sea ice latent heat of fusion, J/m^3
+        # zeta = k_i * L_i / B  # Combined parameter, W·K/m^2
+        self.zeta = (self.k_i * self.L_i / self.B)*(as_u.J).to(as_u.W*as_u.year)/1.5 # Combined parameter
 
-        # Convert units for zeta if needed (as you had (as_u.J).to(as_u.W*as_u.year) ... )
-        # If you don't have these unit conversions defined, comment them out or adjust accordingly.
-        # For now, let's assume zeta just needs the given expression:
-        # This might need to be adjusted or simplified since 'as_u' is not defined.
-        # For demonstration, let's just define zeta = (k_i * L_i / B)
-        self.zeta = (self.k_i * self.L_i / self.B)
-
+        
     def F_s_ice_free(self):
         colbedo = (1-self.ao)*(2*self.phi_c+np.sin(2*self.phi_c))/np.pi
         return (self.A+self.B*self.T_f)*4*np.sin(self.phi_c)/colbedo/1360
+    
 
     # Functions for orbital mechanics
     def r(self,theta, e, a):
@@ -44,9 +53,11 @@ class Critical_Insolation():
         return a * (1 - e**2) / (1 - e * np.cos(theta))
 
     def F(self,thetas, e, S, a):
-        """Calculate net energy flux F(t) at the equator."""
+        """Calculate net energy flux F(t) at the equator as a function of true anomaly theta and eccentricity e."""
         r_vals = self.r(thetas, e, a)
+
         adv = self.adv_flux*e/0.2*S*self.S0
+        # adv=0
         S_r = (1 - self.alpha_i) * S* self.S0 * (a / r_vals)**2 - adv
         F_t = S_r - self.A - self.B * self.T_f 
         return F_t
@@ -64,6 +75,7 @@ class Critical_Insolation():
         t = P * M / (2 * np.pi)
         return t
 
+
     def n_mean_motion(self,theta, e, a):
         """Calculate angular velocity component for time scaling."""
         mu = 4*np.pi**2    # Gravitational parameter for the sun, Msun^3/AU^2
@@ -72,24 +84,33 @@ class Critical_Insolation():
         n_val = (mu * a * (1 - e**2))**0.5 / r_val**2
         return n_val
 
-    # Energy balance equation
+    # Energy balance equation to solve for S
     def energy_balance(self,S,e=0.1,alpha_i=0.6):
-        a = (S*np.sqrt(1-e**2))**(-1/2)
+        a = pow(S*np.sqrt(1-e**2),-1/2)
         P = a**3/2
 
+        # Define theta over one orbit
         theta = np.linspace(0, 2 * np.pi, 10000)
         F_t = self.F(theta, e, S, a)
         # Find indices where F(t) crosses zero
         idx_crossings = np.where(np.diff(np.sign(F_t)))[0]
 
         if len(idx_crossings) < 2:
-            return np.inf  # No valid solution
+            return np.inf  # No valid solution in this e
 
+        # First crossing point (theta1)
         theta1 = theta[idx_crossings[0]]
-        theta2 = 2*np.pi - theta1
+        theta2 = 2*np.pi-theta1  # Due to symmetry
+        
+        # print('theta')
+        # print(theta1,theta2, 2*np.pi-theta1)
+        
+        # Calculate corresponding times t1 and t2
         t1 = self.time_from_theta(theta1, e, P)
-        t2 = P - t1
+        t2 = P - t1  # Symmetry in orbit
 
+        # F_r = (1-alpha_i)*S*S0/(2*np.pi/P*a**2*np.sqrt(1-e**2))
+        # G = 4*np.pi**2    # Gravitational parameter for the sun, Msun^3/AU^2
         F_r = (1-self.alpha_i)*S*self.S0*P/(2*np.pi*a**2*np.sqrt(1-e**2))
         OLR = self.A + self.B*self.T_f
 
@@ -104,13 +125,16 @@ class Critical_Insolation():
         return lhs-rhs
 
     def solve_S_cri(self,e_arr):
+        # e_arr = [0.2]
         S_arr = np.linspace(0.1,1.6,100)
         S_sol = np.zeros([len(e_arr),len(S_arr)])
+
+
         S_cri = np.zeros(len(e_arr))
         for n_e,e in enumerate(e_arr):
             for n_S,S in enumerate(S_arr):
-                S_sol[n_e,n_S] = self.energy_balance(S,e,alpha_i=self.ai)
-            if np.min(np.abs(S_sol[n_e,:]))>1e-3*self.S0:
+                S_sol[n_e,n_S] = self.energy_balance(S,e,alpha_i=0.6)
+            if np.min(np.abs(S_sol[n_e,:]))>1e-2*self.S0:
                 S_cri[n_e] = np.nan
             else:
                 S_cri[n_e] = S_arr[np.argmin(np.abs(S_sol[n_e,:]))]

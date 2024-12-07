@@ -1,3 +1,9 @@
+pip install numpy
+pip install matplotlib
+pip install scipy
+pip install astropy
+
+
 import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt

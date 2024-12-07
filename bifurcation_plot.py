@@ -110,7 +110,7 @@ class Critical_Insolation():
         for n_e,e in enumerate(e_arr):
             for n_S,S in enumerate(S_arr):
                 S_sol[n_e,n_S] = self.energy_balance(S,e,alpha_i=self.ai)
-            if np.min(np.abs(S_sol[n_e,:]))>1e-2*self.S0:
+            if np.min(np.abs(S_sol[n_e,:]))>1e-3*self.S0:
                 S_cri[n_e] = np.nan
             else:
                 S_cri[n_e] = S_arr[np.argmin(np.abs(S_sol[n_e,:]))]
